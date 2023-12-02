@@ -1,0 +1,55 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:15.4
+    container_name: postgres
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - KC_LOG_LEVEL=info
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KC_HOSTNAME_STRICT_HTTPS=false
+      - KC_DB=postgres
+      - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak?currentSchema=public&user=postgres&password=postgres
+      - KC_HEALTH_ENABLED=true
+      - KC_METRICS_ENABLED=false
+      - JAVA_OPTS="-agentlib:jdwp=transport=dt_socket,address=*:8787,server=y,suspend=n"
+    container_name: keycloak
+    entrypoint: /opt/keycloak/bin/kc.sh start-dev --http-enabled=true --cache=local
+    ports:
+      - "8080:8080"
+      - "8787:8787"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://keycloak:8080/ || exit 1" ]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 10s
+
+  quarkus-app:
+    build:
+      context: .
+      dockerfile: src/main/docker/Dockerfile.jvm
+    command: [ "java", "-jar", "quarkus-run.jar" ]
+    ports:
+      - "8081:8081"
+    depends_on:
+      keycloak:
+        condition: service_healthy
